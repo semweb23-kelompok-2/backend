@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+import json
 import rdflib
 
 app = FastAPI()
@@ -31,11 +32,40 @@ async def get_all_games(skip: int = 0, limit: int = 50):
     """
 
     res = g.query(query)
-    return process_result(res)
+    return load_result_into_json(res)
 
 
-@app.get("/api/{app_id}")
-async def read_app(app_id: str):
+@app.get("/api/games/search")
+async def search_games(name: str, skip: int = 0, limit: int = 50):
+    query = f"""
+        prefix : <http://127.0.0.1:8000/>
+
+            SELECT ?app_id ?app_name ?header_image ?background ?positive_ratings ?negative_ratings (GROUP_CONCAT(distinct(?genre); SEPARATOR=", ") as ?genres)
+            WHERE {{
+                ?app a :Game ;
+                    rdfs:label ?app_name ;
+                    :appid ?app_id ;
+                    :header_image ?header_image ;
+                    :background ?background ;
+                    :positive_ratings ?positive_ratings ;
+                    :negative_ratings ?negative_ratings ;
+                    :genre ?genre .
+
+                FILTER (regex(?app_name, "{name}", "i"))
+        }}
+        GROUP BY ?app_id ?app_name ?header_image ?background ?positive_ratings ?negative_ratings
+        ORDER BY ?app_name 
+        LIMIT {limit}
+        OFFSET {skip}
+    """
+
+    res = g.query(query)
+    # return the result in json format without using process_result
+    return json.loads(res.serialize(format="json"))
+
+
+@app.get("/api/games/{app_id}")
+async def read_game(app_id: str):
     query = f"""
         SELECT ?app ?app_name
         WHERE {{
@@ -45,16 +75,8 @@ async def read_app(app_id: str):
     """
 
     res = g.query(query)
-
-    for row in res:
-        print(row)
-    return res
+    return load_result_into_json(res)
 
 
-def process_result(query_result):
-    res = []
-    print(len(query_result))
-    for row in query_result:
-        res.append(row)
-
-    return res
+def load_result_into_json(query_result):
+    return json.loads(query_result.serialize(format="json"))
