@@ -8,7 +8,7 @@ g = rdflib.Graph()
 g.parse("static/steam.ttl")
 
 
-@router.get("/api/games/{app_id}")
+@router.get("/games/{app_id}")
 async def game_detail(app_id: str):
     query = f"""
         SELECT ?app ?app_name

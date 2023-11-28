@@ -8,7 +8,7 @@ g = rdflib.Graph()
 g.parse("static/steam.ttl")
 
 
-@router.get("/api/games/search")
+@router.get("/games/search")
 async def search_games(name: str, skip: int = 0, limit: int = 50):
     query = f"""
         prefix : <http://127.0.0.1:8000/>
