@@ -160,7 +160,7 @@ def developer_detail(query_name):
     OPTIONAL {{?s dbo:location ?loc}}.
     OPTIONAL {{?s dbo:foundingDate ?foundDate}}.
     OPTIONAL {{?s dbp:founders ?founders}}.
-    }} 
+    }}
     """
 
     #TODO:
