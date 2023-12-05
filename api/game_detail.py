@@ -65,8 +65,11 @@ async def game_detail(app_id: str):
         ?req_age ?header_image ?avg_playtime ?median_playtime ?negative_ratings ?positive_ratings ?owners 
         ?movies ?screenshots
     """
-    sparql_results = g.query(query) # type sparql
-    # external_data = external_data_games_detail(app_id) #return dictionary
+    sparql_results = g.query(query)
+    # external_data = external_data_games_detail(app_id)
+    """
+    plan: gabungin jsonnya, description + for genre?
+    """
     
     return json.loads(sparql_results.serialize(format="json"))
 
@@ -112,6 +115,7 @@ def external_data_games_detail(app_id):
     wrapper = SPARQLWrapper2(dbpedia_endpoint)
     wrapper.setQuery(dbq_query)
 
+    dbq_res = None
     for index, db_result in enumerate(wrapper.query().bindings):
         # abstract (en)
         if db_result["abstract"].lang == "en":
@@ -124,7 +128,6 @@ def external_data_games_detail(app_id):
 
     return dbq_res
 
-# http://viaf.org/viaf/147977846 ViafID
 @router.get("/developer/{query_name}")
 def developer_detail(query_name):
     # Which parameters to use
@@ -136,46 +139,45 @@ def developer_detail(query_name):
         }
     data = fetch_wikidata(params)
     data = data.json()
-    # get the viaf id nya dulu
+
     wikidata_id = data['search'][0]['id']
-    # Get ID from the wbsearchentities response
-    params = {  'action': 'wbgetentities',
-                'ids':wikidata_id,
-                'format': 'json',
-                'languages': 'en'
-            }
-    data = fetch_wikidata(params)
-    data = data.json()
-
-    # viaf_id = data['entities'][wikidata_id]['claims']['P214']
-    viaf_id = data['entities'][wikidata_id]['claims']['P214'][0]['mainsnak']['datavalue']['value']
-    print(viaf_id)
-
-    viaf = "http://viaf.org/viaf/"
+    print(wikidata_id)
     dbpedia_endpoint = "https://dbpedia.org/sparql"
 
-    viaf_uri = viaf+viaf_id
-    print(viaf_uri)
+    wiki_uri_base = "http://www.wikidata.org/entity/"
+    wiki_uri = wiki_uri_base+wikidata_id
+
     dbq_query = prefix + f"""
-    SELECT ?abstract where
-    {{ ?s schema:sameAs <{viaf_uri}> .
-        ?s dbo:abstract ?abstract .
-    }}"""
+    SELECT ?name ?abstract ?thumbnail ?founders ?foundDate ?numEmployees ?homepage (COALESCE(?locCity, ?loc) AS ?location) WHERE
+    {{
+    ?s owl:sameAs <{wiki_uri}>;
+    foaf:name ?name ;
+    dbo:abstract ?abstract .
+    OPTIONAL {{ ?s foaf:homepage ?homepage }}.
+    OPTIONAL {{ ?s dbo:thumbnail ?thumbnail }}.
+    OPTIONAL {{?s dbp:numEmployees ?numEmployees}}.
+    OPTIONAL {{?s dbo:locationCity ?locCity }} .
+    OPTIONAL {{?s dbo:location ?loc}}.
+    OPTIONAL {{?s dbo:foundingDate ?foundDate}}.
+    OPTIONAL {{?s dbp:founders ?founders}}.
+    }} 
+    """
+
+    #TODO:
+    # implemnt kalau di wikidata gak ketemu hasil searchnya
+    # sebenrnya ada tapi harus dispasi: Aliasworlds Entertainment bisa
+    # AliasworldsEntertainment gakbisa
 
     wrapper = SPARQLWrapper2(dbpedia_endpoint)
     wrapper.setQuery(dbq_query)
 
+    dbq_res = None
     for index, db_result in enumerate(wrapper.query().bindings):
         # abstract (en)
         if db_result["abstract"].lang == "en":
             dbq_res = wrapper.query().bindings[index]
-            abstract = db_result["abstract"].value
             break
-    print(f"abstract: {abstract}")
-
     return dbq_res
-
-    # return data
 
 def fetch_wikidata(params):
     url = 'https://www.wikidata.org/w/api.php'
@@ -188,12 +190,13 @@ def fetch_wikidata(params):
 """
 TODO:
 - combine data
+Q193559
 
 data tambahan (developer):
-    dbo:abstract
-    dbo:foundingDate
-    dbo:foundingYear
-    dbo:locationCity
+    dbo:abstract OK
+    dbo:foundingDate OK
+    dbo:locationCity OK
+    foaf:name OK
     dbo:product
     dbo:type
     rdfs:company
