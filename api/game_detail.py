@@ -65,26 +65,13 @@ async def game_detail(app_id: str):
         ?req_age ?header_image ?avg_playtime ?median_playtime ?negative_ratings ?positive_ratings ?owners 
         ?movies ?screenshots
     """
-    res = g.query(query)
-
-    # TODO: combine the data -> genre + abstract, problem: runtime lama bgt
-    # datatype: sparql + dictionary
-    # external_data = dbpedia_query(app_id)
-
-    # # Convert SPARQLResult to a dictionary
-    # result_dict = {}
-    # for row in res.bindings:
-    #     for var, value in row.items():
-    #         result_dict[str(var)] = str(value)
-
-    # merged_dict = {**result_dict, **external_data}
-    # json_result = json.dumps(merged_dict)
-    # return json_result
-
-    return json.loads(res.serialize(format="json"))
+    sparql_results = g.query(query) # type sparql
+    # external_data = external_data_games_detail(app_id) #return dictionary
+    
+    return json.loads(sparql_results.serialize(format="json"))
 
 @router.get("/external-data/{app_id}")
-def dbpedia_query(app_id):
+def external_data_games_detail(app_id):
     # wikidata
     wikidata_endpoint = "https://query.wikidata.org/sparql"
 
@@ -115,7 +102,7 @@ def dbpedia_query(app_id):
     # dbpedia
     dbpedia_endpoint = "https://dbpedia.org/sparql"
 
-    dbpedia_query = prefix + f"""
+    dbq_query = prefix + f"""
     SELECT ?abstract (GROUP_CONCAT(distinct(?genre); SEPARATOR=", ") as ?genres) where
     {{ ?s owl:sameAs <{url_wikidata}> .
     ?s  dbo:abstract ?abstract ;
@@ -123,22 +110,85 @@ def dbpedia_query(app_id):
     }}
     """
     wrapper = SPARQLWrapper2(dbpedia_endpoint)
-    wrapper.setQuery(dbpedia_query)
+    wrapper.setQuery(dbq_query)
 
     for index, db_result in enumerate(wrapper.query().bindings):
         # abstract (en)
         if db_result["abstract"].lang == "en":
             dbq_res = wrapper.query().bindings[index]
             abstract = db_result["abstract"].value
-            genre = db_result["genres"].value
+            genre = db_result["genres"].value # kalo bisa ditambah di sana
             break
     print(f"abstract: {abstract}")
     print(f"genre: {genre}")
 
     return dbq_res
 
+# http://viaf.org/viaf/147977846 ViafID
+@router.get("/developer/{query_name}")
+def developer_detail(query_name):
+    # Which parameters to use
+    params = {
+            'action': 'wbsearchentities',
+            'format': 'json',
+            'search': query_name,
+            'language': 'en'
+        }
+    data = fetch_wikidata(params)
+    data = data.json()
+    # get the viaf id nya dulu
+    wikidata_id = data['search'][0]['id']
+    # Get ID from the wbsearchentities response
+    params = {  'action': 'wbgetentities',
+                'ids':wikidata_id,
+                'format': 'json',
+                'languages': 'en'
+            }
+    data = fetch_wikidata(params)
+    data = data.json()
+
+    # viaf_id = data['entities'][wikidata_id]['claims']['P214']
+    viaf_id = data['entities'][wikidata_id]['claims']['P214'][0]['mainsnak']['datavalue']['value']
+    print(viaf_id)
+
+    viaf = "http://viaf.org/viaf/"
+    dbpedia_endpoint = "https://dbpedia.org/sparql"
+
+    viaf_uri = viaf+viaf_id
+    print(viaf_uri)
+    dbq_query = prefix + f"""
+    SELECT ?abstract where
+    {{ ?s schema:sameAs <{viaf_uri}> .
+        ?s dbo:abstract ?abstract .
+    }}"""
+
+    wrapper = SPARQLWrapper2(dbpedia_endpoint)
+    wrapper.setQuery(dbq_query)
+
+    for index, db_result in enumerate(wrapper.query().bindings):
+        # abstract (en)
+        if db_result["abstract"].lang == "en":
+            dbq_res = wrapper.query().bindings[index]
+            abstract = db_result["abstract"].value
+            break
+    print(f"abstract: {abstract}")
+
+    return dbq_res
+
+    # return data
+
+def fetch_wikidata(params):
+    url = 'https://www.wikidata.org/w/api.php'
+    try:
+        return requests.get(url, params=params)
+    except:
+        return 'There was an error'
+
+
 """
 TODO:
+- combine data
+
 data tambahan (developer):
     dbo:abstract
     dbo:foundingDate
