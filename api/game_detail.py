@@ -1,6 +1,7 @@
 from .utils import *
 from fastapi import APIRouter
 import requests
+import ast
 from SPARQLWrapper import JSON, SPARQLWrapper2
 
 import rdflib
@@ -26,8 +27,10 @@ g.parse("static/steam.ttl")
 
 @router.get("/games/{app_id}")
 async def game_detail(app_id: str):
+
+    # ------------ query local ttl ------------------------
     query = prefix + f"""
-        SELECT ?app_name ?release_date ?background ?in_english ?developer ?publisher ?website ?support_email ?support_url 
+        SELECT ?app_name ?release_date ?background ?in_english ?nameDeveloper ?namePublisher ?website ?support_email ?support_url 
                 (GROUP_CONCAT(DISTINCT ?category; SEPARATOR=", ") as ?categories)
                 (GROUP_CONCAT(DISTINCT ?genre; SEPARATOR=", ") as ?genres)
                 (GROUP_CONCAT(DISTINCT ?platform; SEPARATOR=", ") as ?platforms)
@@ -41,8 +44,12 @@ async def game_detail(app_id: str):
         OPTIONAL {{?app :release_date ?release_date .}}
         OPTIONAL {{?app :background ?background.}}
         OPTIONAL {{?app :in_english ?in_english .}}
-        OPTIONAL {{?app :developer ?developer .}}
-        OPTIONAL {{?app :publisher ?publisher .}}
+        OPTIONAL {{
+                ?app :developer ?developer .
+                ?developer rdfs:label ?nameDeveloper .}}
+        OPTIONAL {{
+            ?app :publisher ?publisher .
+            ?publisher rdfs:label ?namePublisher .}}
         OPTIONAL {{?app :category ?category .}}
         OPTIONAL {{?app :genre ?genre .}}
         OPTIONAL {{?app :platforms ?platform .}}
@@ -61,17 +68,58 @@ async def game_detail(app_id: str):
         OPTIONAL {{?app :support_email ?support_email.}}
         OPTIONAL {{?app :support_url ?support_url .}}
     }}
-    GROUP BY ?app_name ?release_date ?background ?in_english ?developer ?publisher ?website ?support_email ?support_url ?minimum_requirements ?recommended_requirements 
+    GROUP BY ?app_name ?release_date ?background ?in_english ?nameDeveloper ?namePublisher ?website ?support_email ?support_url ?minimum_requirements ?recommended_requirements 
         ?req_age ?header_image ?avg_playtime ?median_playtime ?negative_ratings ?positive_ratings ?owners 
         ?movies ?screenshots
     """
     sparql_results = g.query(query)
-    # external_data = external_data_games_detail(app_id)
-    """
-    plan: gabungin jsonnya, description + for genre?
-    """
-    
-    return json.loads(sparql_results.serialize(format="json"))
+    json_res = json.loads(sparql_results.serialize(format="json"))
+
+    # ------------------ change string of list into list ------------
+    # movies = json_res['results']['bindings'][0]["movies"]
+    # lst_movies = ast.literal_eval(movies)
+    # json_res['results']['bindings'][0]["movies"] = lst_movies
+
+    # screenshots = json_res['results']['bindings'][0]["screenshots"]
+    # lst_screenshots = ast.literal_eval(screenshots)
+    # json_res['results']['bindings'][0]["screenshots"] = lst_screenshots
+
+    # ------------ query external detail games -----------------------
+    extData_game = external_data_games_detail(app_id)
+    dct = dict()
+    for key in extData_game.keys():
+        if key not in json_res['results']['bindings'][0].keys():
+            dct = dict()
+            dct["value"] = extData_game[key].value
+            json_res['results']['bindings'][0][key] = dct
+        else:
+            val = json_res['results']['bindings'][0][key]["value"]
+            val = val + f", {extData_game[key].value}"
+            json_res['results']['bindings'][0][key]["value"] = val
+
+    # ------------ query external developer -----------------------
+    # check if not empty
+    nameDeveloper = json_res['results']['bindings'][0]["nameDeveloper"]["value"]
+    if nameDeveloper != "":
+        exData_Developer = developer_detail(nameDeveloper)
+        dct = dict()
+        for key in exData_Developer.keys():
+            if key not in json_res['results']['bindings'][0].keys():
+                dct = dict()
+                dct["value"] = exData_Developer[key].value
+                json_res['results']['bindings'][0][key] = dct
+            else:
+                val = json_res['results']['bindings'][0][key]["value"]
+                val = val + f", {exData_Developer[key].value}"
+                json_res['results']['bindings'][0][key]["value"] = val
+
+    # ------------ query external publisher -----------------------
+    # check if not empty
+
+    # ------------ query external genre -----------------------
+    # check if not empty
+
+    return json_res
 
 @router.get("/external-data/{app_id}")
 def external_data_games_detail(app_id):
@@ -121,10 +169,8 @@ def external_data_games_detail(app_id):
         if db_result["abstract"].lang == "en":
             dbq_res = wrapper.query().bindings[index]
             abstract = db_result["abstract"].value
-            genre = db_result["genres"].value # kalo bisa ditambah di sana
+            genre = db_result["genres"].value
             break
-    print(f"abstract: {abstract}")
-    print(f"genre: {genre}")
 
     return dbq_res
 
@@ -148,25 +194,27 @@ def developer_detail(query_name):
     wiki_uri = wiki_uri_base+wikidata_id
 
     dbq_query = prefix + f"""
-    SELECT ?name ?abstract ?thumbnail ?founders ?foundDate ?numEmployees ?homepage (COALESCE(?locCity, ?loc) AS ?location) WHERE
+    SELECT ?developerName ?developerAbstract
+        ?developerThumbnail ?developerFounderName ?developerFoundDate
+        ?developerNumEmployees ?developerHomepage ?developerOwner
+        (COALESCE(?developerLocCity, ?developerLoc) AS ?developerLocation) WHERE
     {{
-    ?s owl:sameAs <{wiki_uri}>;
-    foaf:name ?name ;
-    dbo:abstract ?abstract .
-    OPTIONAL {{ ?s foaf:homepage ?homepage }}.
-    OPTIONAL {{ ?s dbo:thumbnail ?thumbnail }}.
-    OPTIONAL {{?s dbp:numEmployees ?numEmployees}}.
-    OPTIONAL {{?s dbo:locationCity ?locCity }} .
-    OPTIONAL {{?s dbo:location ?loc}}.
-    OPTIONAL {{?s dbo:foundingDate ?foundDate}}.
-    OPTIONAL {{?s dbp:founders ?founders}}.
-    }}
+        ?developer owl:sameAs <{wiki_uri}>;
+        foaf:name ?developerName ;
+        dbo:abstract ?developerAbstract .
+        OPTIONAL {{ ?developer foaf:homepage ?developerHomepage }}.
+        OPTIONAL {{ ?developer dbo:thumbnail ?developerThumbnail }}.
+        OPTIONAL {{?developer dbp:numEmployees ?developerNumEmployees}}.
+        OPTIONAL {{?developer dbo:locationCity ?developerLocCity }} .
+        OPTIONAL {{?developer dbo:location ?developerLoc}}.
+        OPTIONAL {{?developer dbo:foundingDate ?developerFoundDate}}.
+        OPTIONAL {{?developer dbp:founders ?developerFounders.
+            ?developerFounders rdfs:label ?developerFounderName}}.
+        OPTIONAL {{?developer dbp:owner ?developerOwner}}
+        }}
+        GROUP BY ?developerName ?developerAbstract ?developerThumbnail ?developerFounders ?developerFoundDate
+        ?developerNumEmployees ?developerHomepage ?developerLocCity ?developerLoc ?developerOwner
     """
-
-    #TODO:
-    # implemnt kalau di wikidata gak ketemu hasil searchnya
-    # sebenrnya ada tapi harus dispasi: Aliasworlds Entertainment bisa
-    # AliasworldsEntertainment gakbisa
 
     wrapper = SPARQLWrapper2(dbpedia_endpoint)
     wrapper.setQuery(dbq_query)
@@ -174,7 +222,7 @@ def developer_detail(query_name):
     dbq_res = None
     for index, db_result in enumerate(wrapper.query().bindings):
         # abstract (en)
-        if db_result["abstract"].lang == "en":
+        if db_result["developerAbstract"].lang == "en":
             dbq_res = wrapper.query().bindings[index]
             break
     return dbq_res
@@ -186,31 +234,5 @@ def fetch_wikidata(params):
     except:
         return 'There was an error'
 
-
-"""
-TODO:
-- combine data
-Q193559
-
-data tambahan (developer):
-    dbo:abstract OK
-    dbo:foundingDate OK
-    dbo:locationCity OK
-    foaf:name OK
-    dbo:product
-    dbo:type
-    rdfs:company
-    rdfs:label
-    dbo:parentCompany
-    dbo:publisher (also publisher of)
-
-data tambahan (genre):
-    rdfs:comment
-    dbo:abstract
-    dbo:wikiPageWikiLink
-
-problem: no id? how can we get genre && developer
---> search through wiki
-"""
 
 
