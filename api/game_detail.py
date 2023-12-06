@@ -105,8 +105,6 @@ async def game_detail(app_id: str):
         chosen_ss = []
         for i in range(cnt_ss):
             rand = random.randint(0,len(lst_screenshots)-1)
-            print(f"len ss: {len(lst_screenshots)}")
-            print(f"rand: {rand}")
             item_rand_ss = lst_screenshots[rand]["path_full"]
             chosen_ss.append(item_rand_ss)
             lst_screenshots.pop(rand)
@@ -159,9 +157,6 @@ async def game_detail(app_id: str):
                     val = val + f", {exData_Publisher[key].value}"
                     json_res['results']['bindings'][0][key]["value"] = val
 
-    # ------------ query external genre -----------------------
-    # check if not empty
-
     return json_res
 
 @router.get("/extGame/{app_id}")
@@ -205,6 +200,7 @@ def external_data_games_detail(app_id):
     """
     wrapper = SPARQLWrapper2(dbpedia_endpoint)
     wrapper.setQuery(dbq_query)
+    wrapper.setTimeout(700)
 
     dbq_res = None
     for index, db_result in enumerate(wrapper.query().bindings):
@@ -225,56 +221,52 @@ def dev_pub_detail(types, query_name):
             'format': 'json',
             'search': query_name,
             'language': 'en'
-        }
+    }
     data = fetch_wikidata(params)
     data = data.json()
-    wikidata_id = data['search'][0]['id'] # get wikidata id
-    print(f"wikidata id: {wikidata_id}")
-
-    # get information from dbpedia
-    dbpedia_endpoint = "https://dbpedia.org/sparql"
-    wiki_uri_base = "http://www.wikidata.org/entity/"
-    wiki_uri = wiki_uri_base+wikidata_id
     print(f"type: {types}")
-    dbq_query = prefix + f"""
-    SELECT (COALESCE(?foafName, ?dbpName) AS ?{types}Name) ?{types}Abstract
-        ?{types}Thumbnail ?{types}FounderName ?{types}FoundDate
-        ?{types}NumEmployees ?{types}Homepage ?{types}Owner
-        (COALESCE(?{types}LocCity, ?{types}Loc) AS ?{types}Location)
+    if len(data['search']) != 0:
+        wikidata_id = data['search'][0]['id'] # get wikidata id
+        print(f"wikidata id: {wikidata_id}")
 
-    WHERE
-    {{
-        ?{types} owl:sameAs <{wiki_uri}>;
-                dbo:abstract ?{types}Abstract .
-        OPTIONAL {{?{types} foaf:name ?foafName}}.
-        OPTIONAL {{?{types} dbp:name ?dbpName}}.
-        OPTIONAL {{ ?{types} foaf:homepage ?{types}Homepage }}.
-        OPTIONAL {{ ?{types} dbo:thumbnail ?{types}Thumbnail }}.
-        OPTIONAL {{?{types} dbp:numEmployees ?{types}NumEmployees}}.
-        OPTIONAL {{?{types} dbo:locationCity ?{types}LocCity }} .
-        OPTIONAL {{?{types} dbo:location ?{types}Loc}}.
-        OPTIONAL {{?{types} dbo:foundingDate ?{types}FoundDate}}.
-        OPTIONAL {{?{types} dbp:founders ?{types}Founders.
-            ?{types}Founders rdfs:label ?{types}FounderName}}.
-        OPTIONAL {{?{types} dbp:owner ?{types}Owner}}
-        }}
-    """
+        # get information from dbpedia
+        dbpedia_endpoint = "https://dbpedia.org/sparql"
+        wiki_uri_base = "http://www.wikidata.org/entity/"
+        wiki_uri = wiki_uri_base+wikidata_id
+        dbq_query = prefix + f"""
+        SELECT (COALESCE(?foafName, ?dbpName) AS ?{types}Name) ?{types}Abstract
+            ?{types}Thumbnail ?{types}FounderName ?{types}FoundDate
+            ?{types}NumEmployees ?{types}Homepage ?{types}Owner
+            (COALESCE(?{types}LocCity, ?{types}Loc) AS ?{types}Location)
 
-    wrapper = SPARQLWrapper2(dbpedia_endpoint)
-    wrapper.setQuery(dbq_query)
+        WHERE
+        {{
+            ?{types} owl:sameAs <{wiki_uri}>;
+                    dbo:abstract ?{types}Abstract .
+            OPTIONAL {{?{types} foaf:name ?foafName}}.
+            OPTIONAL {{?{types} dbp:name ?dbpName}}.
+            OPTIONAL {{ ?{types} foaf:homepage ?{types}Homepage }}.
+            OPTIONAL {{ ?{types} dbo:thumbnail ?{types}Thumbnail }}.
+            OPTIONAL {{?{types} dbp:numEmployees ?{types}NumEmployees}}.
+            OPTIONAL {{?{types} dbo:locationCity ?{types}LocCity }} .
+            OPTIONAL {{?{types} dbo:location ?{types}Loc}}.
+            OPTIONAL {{?{types} dbo:foundingDate ?{types}FoundDate}}.
+            OPTIONAL {{?{types} dbp:founders ?{types}Founders.
+                ?{types}Founders rdfs:label ?{types}FounderName}}.
+            OPTIONAL {{?{types} dbp:owner ?{types}Owner}}
+            }}
+        """
 
-    dbq_res = None
-    for index, db_result in enumerate(wrapper.query().bindings):
-        # abstract (en)
-        if db_result[f"{types}Abstract"].lang == "en":
-            dbq_res = wrapper.query().bindings[index]
-            break
-    return dbq_res
+        wrapper = SPARQLWrapper2(dbpedia_endpoint)
+        wrapper.setQuery(dbq_query)
+        wrapper.setTimeout(1000000)
 
-""""
-TODO:
-- list game diubah movie sama screenshot
-- location masih url bentuknya
-- genre
-"""
+        dbq_res = None
+        for index, db_result in enumerate(wrapper.query().bindings):
+            # abstract (en)
+            if db_result[f"{types}Abstract"].lang == "en":
+                dbq_res = wrapper.query().bindings[index]
+                break
+        return dbq_res
+    return None
 
