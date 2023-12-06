@@ -2,6 +2,7 @@ from .utils import *
 from fastapi import APIRouter
 import requests
 import ast
+import random
 from SPARQLWrapper import JSON, SPARQLWrapper2
 
 import rdflib
@@ -24,6 +25,13 @@ prefix = """
 router = APIRouter()
 g = rdflib.Graph()
 g.parse("static/steam.ttl")
+
+def fetch_wikidata(params):
+    url = 'https://www.wikidata.org/w/api.php'
+    try:
+        return requests.get(url, params=params)
+    except:
+        return 'There was an error'
 
 @router.get("/games/{app_id}")
 async def game_detail(app_id: str):
@@ -76,52 +84,87 @@ async def game_detail(app_id: str):
     json_res = json.loads(sparql_results.serialize(format="json"))
 
     # ------------------ change string of list into list ------------
-    # movies = json_res['results']['bindings'][0]["movies"]
-    # lst_movies = ast.literal_eval(movies)
-    # json_res['results']['bindings'][0]["movies"] = lst_movies
+    key= "movies"
+    if key in json_res['results']['bindings'][0].keys():
+        movies = json_res['results']['bindings'][0]["movies"]["value"]
+        lst_movies = ast.literal_eval(movies)
+        rand_index = random.randint(0,len(lst_movies)-1)
+        chosen_movie = lst_movies[rand_index]["webm"]["max"]
+        # movie 1 value string link
+        json_res['results']['bindings'][0]["movies"]["value"] = chosen_movie
 
-    # screenshots = json_res['results']['bindings'][0]["screenshots"]
-    # lst_screenshots = ast.literal_eval(screenshots)
-    # json_res['results']['bindings'][0]["screenshots"] = lst_screenshots
-
+    key= "screenshots"
+    if key in json_res['results']['bindings'][0].keys():
+        screenshots = json_res['results']['bindings'][0]["screenshots"]["value"]
+        lst_screenshots = ast.literal_eval(screenshots)
+        cnt_ss = 0
+        if len(lst_screenshots) > 10:
+            cnt_ss = 10
+        else:
+            cnt_ss = len(lst_screenshots)
+        chosen_ss = []
+        for i in range(cnt_ss):
+            rand = random.randint(0,len(lst_screenshots)-1)
+            print(f"len ss: {len(lst_screenshots)}")
+            print(f"rand: {rand}")
+            item_rand_ss = lst_screenshots[rand]["path_full"]
+            chosen_ss.append(item_rand_ss)
+            lst_screenshots.pop(rand)
+        json_res['results']['bindings'][0]["screenshots"]["value"] = chosen_ss
     # ------------ query external detail games -----------------------
     extData_game = external_data_games_detail(app_id)
-    dct = dict()
-    for key in extData_game.keys():
-        if key not in json_res['results']['bindings'][0].keys():
-            dct = dict()
-            dct["value"] = extData_game[key].value
-            json_res['results']['bindings'][0][key] = dct
-        else:
-            val = json_res['results']['bindings'][0][key]["value"]
-            val = val + f", {extData_game[key].value}"
-            json_res['results']['bindings'][0][key]["value"] = val
+    if extData_game != None:
+        dct = dict()
+        for key in extData_game.keys():
+            if key not in json_res['results']['bindings'][0].keys():
+                dct = dict()
+                dct["value"] = extData_game[key].value
+                json_res['results']['bindings'][0][key] = dct
+            else:
+                val = json_res['results']['bindings'][0][key]["value"]
+                val = val + f", {extData_game[key].value}"
+                json_res['results']['bindings'][0][key]["value"] = val
 
     # ------------ query external developer -----------------------
     # check if not empty
     nameDeveloper = json_res['results']['bindings'][0]["nameDeveloper"]["value"]
     if nameDeveloper != "":
-        exData_Developer = developer_detail(nameDeveloper)
-        dct = dict()
-        for key in exData_Developer.keys():
-            if key not in json_res['results']['bindings'][0].keys():
-                dct = dict()
-                dct["value"] = exData_Developer[key].value
-                json_res['results']['bindings'][0][key] = dct
-            else:
-                val = json_res['results']['bindings'][0][key]["value"]
-                val = val + f", {exData_Developer[key].value}"
-                json_res['results']['bindings'][0][key]["value"] = val
+        exData_Developer = dev_pub_detail("developer", nameDeveloper)
+        if exData_Developer != None:
+            dct = dict()
+            for key in exData_Developer.keys():
+                if key not in json_res['results']['bindings'][0].keys():
+                    dct = dict()
+                    dct["value"] = exData_Developer[key].value
+                    json_res['results']['bindings'][0][key] = dct
+                else:
+                    val = json_res['results']['bindings'][0][key]["value"]
+                    val = val + f", {exData_Developer[key].value}"
+                    json_res['results']['bindings'][0][key]["value"] = val
 
     # ------------ query external publisher -----------------------
     # check if not empty
+    namePublisher = json_res['results']['bindings'][0]["namePublisher"]["value"]
+    if namePublisher != "":
+        exData_Publisher = dev_pub_detail("publisher", namePublisher)
+        if exData_Publisher != None:
+            dct = dict()
+            for key in exData_Publisher.keys():
+                if key not in json_res['results']['bindings'][0].keys():
+                    dct = dict()
+                    dct["value"] = exData_Publisher[key].value
+                    json_res['results']['bindings'][0][key] = dct
+                else:
+                    val = json_res['results']['bindings'][0][key]["value"]
+                    val = val + f", {exData_Publisher[key].value}"
+                    json_res['results']['bindings'][0][key]["value"] = val
 
     # ------------ query external genre -----------------------
     # check if not empty
 
     return json_res
 
-@router.get("/external-data/{app_id}")
+@router.get("/extGame/{app_id}")
 def external_data_games_detail(app_id):
     # wikidata
     wikidata_endpoint = "https://query.wikidata.org/sparql"
@@ -168,15 +211,15 @@ def external_data_games_detail(app_id):
         # abstract (en)
         if db_result["abstract"].lang == "en":
             dbq_res = wrapper.query().bindings[index]
-            abstract = db_result["abstract"].value
-            genre = db_result["genres"].value
             break
 
     return dbq_res
 
-@router.get("/developer/{query_name}")
-def developer_detail(query_name):
-    # Which parameters to use
+@router.get("/extDevPub/{types}/{query_name}")
+def dev_pub_detail(types, query_name):
+    # type = developer or publisher
+
+    # search in wikidata
     params = {
             'action': 'wbsearchentities',
             'format': 'json',
@@ -185,35 +228,36 @@ def developer_detail(query_name):
         }
     data = fetch_wikidata(params)
     data = data.json()
+    wikidata_id = data['search'][0]['id'] # get wikidata id
+    print(f"wikidata id: {wikidata_id}")
 
-    wikidata_id = data['search'][0]['id']
-    print(wikidata_id)
+    # get information from dbpedia
     dbpedia_endpoint = "https://dbpedia.org/sparql"
-
     wiki_uri_base = "http://www.wikidata.org/entity/"
     wiki_uri = wiki_uri_base+wikidata_id
-
+    print(f"type: {types}")
     dbq_query = prefix + f"""
-    SELECT ?developerName ?developerAbstract
-        ?developerThumbnail ?developerFounderName ?developerFoundDate
-        ?developerNumEmployees ?developerHomepage ?developerOwner
-        (COALESCE(?developerLocCity, ?developerLoc) AS ?developerLocation) WHERE
+    SELECT (COALESCE(?foafName, ?dbpName) AS ?{types}Name) ?{types}Abstract
+        ?{types}Thumbnail ?{types}FounderName ?{types}FoundDate
+        ?{types}NumEmployees ?{types}Homepage ?{types}Owner
+        (COALESCE(?{types}LocCity, ?{types}Loc) AS ?{types}Location)
+
+    WHERE
     {{
-        ?developer owl:sameAs <{wiki_uri}>;
-        foaf:name ?developerName ;
-        dbo:abstract ?developerAbstract .
-        OPTIONAL {{ ?developer foaf:homepage ?developerHomepage }}.
-        OPTIONAL {{ ?developer dbo:thumbnail ?developerThumbnail }}.
-        OPTIONAL {{?developer dbp:numEmployees ?developerNumEmployees}}.
-        OPTIONAL {{?developer dbo:locationCity ?developerLocCity }} .
-        OPTIONAL {{?developer dbo:location ?developerLoc}}.
-        OPTIONAL {{?developer dbo:foundingDate ?developerFoundDate}}.
-        OPTIONAL {{?developer dbp:founders ?developerFounders.
-            ?developerFounders rdfs:label ?developerFounderName}}.
-        OPTIONAL {{?developer dbp:owner ?developerOwner}}
+        ?{types} owl:sameAs <{wiki_uri}>;
+                dbo:abstract ?{types}Abstract .
+        OPTIONAL {{?{types} foaf:name ?foafName}}.
+        OPTIONAL {{?{types} dbp:name ?dbpName}}.
+        OPTIONAL {{ ?{types} foaf:homepage ?{types}Homepage }}.
+        OPTIONAL {{ ?{types} dbo:thumbnail ?{types}Thumbnail }}.
+        OPTIONAL {{?{types} dbp:numEmployees ?{types}NumEmployees}}.
+        OPTIONAL {{?{types} dbo:locationCity ?{types}LocCity }} .
+        OPTIONAL {{?{types} dbo:location ?{types}Loc}}.
+        OPTIONAL {{?{types} dbo:foundingDate ?{types}FoundDate}}.
+        OPTIONAL {{?{types} dbp:founders ?{types}Founders.
+            ?{types}Founders rdfs:label ?{types}FounderName}}.
+        OPTIONAL {{?{types} dbp:owner ?{types}Owner}}
         }}
-        GROUP BY ?developerName ?developerAbstract ?developerThumbnail ?developerFounders ?developerFoundDate
-        ?developerNumEmployees ?developerHomepage ?developerLocCity ?developerLoc ?developerOwner
     """
 
     wrapper = SPARQLWrapper2(dbpedia_endpoint)
@@ -222,17 +266,15 @@ def developer_detail(query_name):
     dbq_res = None
     for index, db_result in enumerate(wrapper.query().bindings):
         # abstract (en)
-        if db_result["developerAbstract"].lang == "en":
+        if db_result[f"{types}Abstract"].lang == "en":
             dbq_res = wrapper.query().bindings[index]
             break
     return dbq_res
 
-def fetch_wikidata(params):
-    url = 'https://www.wikidata.org/w/api.php'
-    try:
-        return requests.get(url, params=params)
-    except:
-        return 'There was an error'
-
-
+""""
+TODO:
+- list game diubah movie sama screenshot
+- location masih url bentuknya
+- genre
+"""
 
