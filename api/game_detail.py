@@ -38,7 +38,7 @@ async def game_detail(app_id: str):
 
     # ------------ query local ttl ------------------------
     query = prefix + f"""
-        SELECT ?app_name ?release_date ?background ?in_english ?nameDeveloper ?namePublisher ?website ?support_email ?support_url 
+    SELECT ?app_name ?release_date ?short_description ?background ?in_english ?developerName ?publisherName ?website ?support_email ?support_url 
                 (GROUP_CONCAT(DISTINCT ?category; SEPARATOR=", ") as ?categories)
                 (GROUP_CONCAT(DISTINCT ?genre; SEPARATOR=", ") as ?genres)
                 (GROUP_CONCAT(DISTINCT ?platform; SEPARATOR=", ") as ?platforms)
@@ -49,17 +49,20 @@ async def game_detail(app_id: str):
     WHERE {{
     ?app :appid "{app_id}";
         rdfs:label ?app_name;
+        OPTIONAL {{?app :short_description ?short_description.}}
         OPTIONAL {{?app :release_date ?release_date .}}
         OPTIONAL {{?app :background ?background.}}
         OPTIONAL {{?app :in_english ?in_english .}}
         OPTIONAL {{
                 ?app :developer ?developer .
-                ?developer rdfs:label ?nameDeveloper .}}
+                ?developer rdfs:label ?developerName .}}
         OPTIONAL {{
             ?app :publisher ?publisher .
-            ?publisher rdfs:label ?namePublisher .}}
+            ?publisher rdfs:label ?publisherName .}}
         OPTIONAL {{?app :category ?category .}}
-        OPTIONAL {{?app :genre ?genre .}}
+        OPTIONAL {{
+            ?app :genre ?genreIRI .
+            ?genreIRI rdfs:label ?genre .}}
         OPTIONAL {{?app :platforms ?platform .}}
         OPTIONAL {{?app :minimum_requirements ?minimum_requirements .}}
         OPTIONAL {{?app :recommended_requirements ?recommended_requirements .}}
@@ -76,7 +79,7 @@ async def game_detail(app_id: str):
         OPTIONAL {{?app :support_email ?support_email.}}
         OPTIONAL {{?app :support_url ?support_url .}}
     }}
-    GROUP BY ?app_name ?release_date ?background ?in_english ?nameDeveloper ?namePublisher ?website ?support_email ?support_url ?minimum_requirements ?recommended_requirements 
+    GROUP BY ?app_name ?release_date ?short_description ?background ?in_english ?developerName ?publisherName ?website ?support_email ?support_url ?minimum_requirements ?recommended_requirements 
         ?req_age ?header_image ?avg_playtime ?median_playtime ?negative_ratings ?positive_ratings ?owners 
         ?movies ?screenshots
     """
@@ -125,7 +128,7 @@ async def game_detail(app_id: str):
 
     # ------------ query external developer -----------------------
     # check if not empty
-    nameDeveloper = json_res['results']['bindings'][0]["nameDeveloper"]["value"]
+    nameDeveloper = json_res['results']['bindings'][0]["developerName"]["value"]
     if nameDeveloper != "":
         exData_Developer = dev_pub_detail("developer", nameDeveloper)
         if exData_Developer != None:
@@ -142,7 +145,7 @@ async def game_detail(app_id: str):
 
     # ------------ query external publisher -----------------------
     # check if not empty
-    namePublisher = json_res['results']['bindings'][0]["namePublisher"]["value"]
+    namePublisher = json_res['results']['bindings'][0]["publisherName"]["value"]
     if namePublisher != "":
         exData_Publisher = dev_pub_detail("publisher", namePublisher)
         if exData_Publisher != None:
@@ -192,29 +195,26 @@ def external_data_games_detail(app_id):
     dbpedia_endpoint = "https://dbpedia.org/sparql"
 
     dbq_query = prefix + f"""
-    SELECT ?abstract (GROUP_CONCAT(distinct(?genre); SEPARATOR=", ") as ?genres) where
+    SELECT ?gameAbstract (GROUP_CONCAT(distinct(?genre); SEPARATOR=", ") as ?genres) where
     {{ ?s owl:sameAs <{url_wikidata}> .
-    ?s  dbo:abstract ?abstract ;
-        dbo:genre ?genre
+    ?s dbo:abstract ?gameAbstract FILTER(LANG(?gameAbstract) = 'en').
+        OPTIONAL {{
+            ?s dbo:genre ?genreIRI .
+            ?genreIRI rdfs:label ?genre FILTER(LANG(?genre) = 'en'). }}
     }}
     """
     wrapper = SPARQLWrapper2(dbpedia_endpoint)
     wrapper.setQuery(dbq_query)
     wrapper.setTimeout(700)
-
+    
     dbq_res = None
-    for index, db_result in enumerate(wrapper.query().bindings):
-        # abstract (en)
-        if db_result["abstract"].lang == "en":
-            dbq_res = wrapper.query().bindings[index]
-            break
+    if len(wrapper.query().bindings) != 0:
+        dbq_res = wrapper.query().bindings[0]
 
     return dbq_res
 
 @router.get("/extDevPub/{types}/{query_name}")
 def dev_pub_detail(types, query_name):
-    # type = developer or publisher
-
     # search in wikidata
     params = {
             'action': 'wbsearchentities',
