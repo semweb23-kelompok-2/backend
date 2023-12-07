@@ -30,6 +30,8 @@ async def search_games(
     limit: int = 50,
     genre: str = None,
     category: str = None,
+    order_by: str = "app_id",
+    order: str = "asc",
 ):
     query = (
         prefix
@@ -84,7 +86,7 @@ async def search_games(
         }}
         GROUP BY ?app_id ?app_name ?header_image ?background ?positive_ratings 
             ?negative_ratings ?in_english ?release_date 
-        ORDER BY ?app_name 
+        ORDER BY {order}(?{order_by}) 
         LIMIT {limit}
         OFFSET {skip}
     """
@@ -93,6 +95,20 @@ async def search_games(
     res = g.query(query)
     # return the result in json format without using process_result
     return load_result_into_json(res)
+
+
+@router.get("/games/result-orders")
+async def get_result_orders():
+    return {
+        "order_by": [
+            "app_name",
+            "positive_ratings",
+            "negative_ratings",
+            "release_date",
+            "genres",
+        ],
+        "order": ["asc", "desc"],
+    }
 
 
 @router.get("/games/genres")
