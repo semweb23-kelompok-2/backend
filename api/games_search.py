@@ -154,9 +154,10 @@ async def get_categories():
     query = (
         prefix
         + f"""
-        SELECT DISTINCT ?category
+        SELECT DISTINCT ?category_label
         WHERE {{
-            ?game :category ?category .
+            ?category a :Category ;
+                rdfs:label ?category_label .
         }}
     """
     )
